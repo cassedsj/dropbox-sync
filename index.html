@@ -1,9 +1,119 @@
-<!DOCTYPE html>
-<html>
-   <head>
-      <title>My Cool Website</title>
-   </head>
-   <body>
-      <h1>Hi Mom!</h1>
-   </body>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dropbox Sync</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+</head>
+<body>
+
+<div class="container d-grid align-items-center justify-content-center" style="height: 100svh">
+  <div id="content-div">
+    <span class="d-block">Successfully authenticated with Dropbox</span>
+    <span class="d-block">Copy and paste the access token below in Delver</span>
+    <div class="input-group my-3">
+      <input id="access-token-input" type="text" class="form-control" placeholder="Access token"
+             aria-label="Access token"
+             aria-describedby="access-token-button"
+             onfocus="accessTokenInput.select(); navigator.clipboard.writeText(accessTokenInput.value());"
+      >
+      <button class="btn btn-outline-secondary" type="button"
+              onclick="accessTokenInput.select(); navigator.clipboard.writeText(accessTokenInput.value());">
+        Copy
+      </button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL"
+        crossorigin="anonymous"></script>
+<script>
+    const clientId = 'suczwfvoevu5do6';
+    const redirectUri = 'http://localhost:8081';
+
+    const contentDiv = document.getElementById('content-div');
+    const accessTokenInput = document.getElementById('access-token-input');
+
+    /**
+     * Generates the code verifier and the code challenge using PKCE.
+     * @returns {Promise<{codeVerifier: string, codeChallenge: string}>} The code verifier and the code challenge.
+     */
+    async function generatePKCECodes() {
+
+        function generateRandomString(length) {
+            const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+            let text = '';
+            for (let i = 0; i < length; i++) text += possible.charAt(Math.floor(Math.random() * possible.length));
+            return text;
+        }
+
+        function sha256(plain) {
+            // returns promise ArrayBuffer
+            const encoder = new TextEncoder();
+            const data = encoder.encode(plain);
+            return window.crypto.subtle.digest('SHA-256', data);
+        }
+
+        function base64urlencode(a) {
+            // Convert the ArrayBuffer to string using Uint8 array.
+            return btoa(String.fromCharCode.apply(null, new Uint8Array(a)))
+                .replace(/=+$/, '')
+                .replace(/\+/g, '-').replace(/\//g, '_');
+        }
+
+        const codeVerifier = generateRandomString(128);
+        const hashed = await sha256(codeVerifier);
+        const codeChallenge = base64urlencode(hashed);
+        return {codeVerifier, codeChallenge};
+    }
+
+    /**
+     * Redirects the user to the Dropbox OAuth2 page.
+     */
+    async function redirectToDropbox() {
+        const {codeVerifier, codeChallenge} = await generatePKCECodes();
+        localStorage.setItem('codeVerifier', codeVerifier);
+        window.location.href = `https://www.dropbox.com/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+    }
+
+    /**
+     * Once we have the code returned by Dropbox,
+     * use it along with the code verifier to get the access token.
+     * @param {string} code The code returned by Dropbox.
+     * @param {string} codeVerifier The code verifier used to generate the code challenge.
+     */
+    async function fetchAccessToken(code, codeVerifier) {
+        const response = await fetch('https://api.dropboxapi.com/oauth2/token', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: `code=${code}&grant_type=authorization_code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&code_verifier=${codeVerifier}`
+        });
+        return response.json();
+    }
+
+    // If URL contains ?code=, use fetchAccessToken to get access token
+    if (window.location.search.includes('?code=')) {
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get('code');
+        const codeVerifier = localStorage.getItem('codeVerifier');
+
+        fetchAccessToken(code, codeVerifier).then(data => {
+            if (data.access_token)
+                accessTokenInput.value = data.access_token;
+            else
+                contentDiv.innerHTML = `
+                    <span class="d-block">An error happened while authenticating with Dropbox.</span>
+                    <span class="d-block">Please try again. If the problem persists,
+                      <a href="mailto:contact@delverlab.com" class="d-block">contact me.</a>
+                    </span>`;
+        });
+    } else redirectToDropbox();
+</script>
+
+</body>
 </html>
